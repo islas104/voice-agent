@@ -150,6 +150,7 @@ try:
     from fastapi.exceptions import RequestValidationError
     from fastapi.middleware.cors import CORSMiddleware
     from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+    from fastapi.staticfiles import StaticFiles
 except ImportError as e:
     logger.error(f"Runner dependencies not available: {e}")
     logger.error('To use Pipecat runners, install with: uv add "pipecat-ai[runner]"')
@@ -939,14 +940,29 @@ def _resolve_download_path(folder: str, filename: str) -> Path:
 
 
 def _setup_frontend_routes(app: FastAPI):
-    """Mount the prebuilt frontend UI and root redirect for all transports."""
-    try:
-        from pipecat_ai_prebuilt.frontend import PipecatPrebuiltUI
-    except ImportError as e:
-        logger.error(f"Prebuilt frontend not available: {e}")
-        return
+    """Mount the client UI and root redirect for all transports.
 
-    app.mount("/client", PipecatPrebuiltUI)
+    A custom client build can be served by setting PIPECAT_CLIENT_DIR to a
+    directory containing an index.html; otherwise the prebuilt UI is used.
+    """
+    custom_client_dir = os.getenv("PIPECAT_CLIENT_DIR")
+    if custom_client_dir:
+        client_path = Path(custom_client_dir).resolve()
+        if (client_path / "index.html").is_file():
+            frontend = StaticFiles(directory=client_path, html=True)
+        else:
+            logger.error(f"PIPECAT_CLIENT_DIR has no index.html: {client_path}")
+            return
+    else:
+        try:
+            from pipecat_ai_prebuilt.frontend import PipecatPrebuiltUI
+
+            frontend = PipecatPrebuiltUI
+        except ImportError as e:
+            logger.error(f"Prebuilt frontend not available: {e}")
+            return
+
+    app.mount("/client", frontend)
 
     @app.get("/", include_in_schema=False)
     async def root_redirect():
